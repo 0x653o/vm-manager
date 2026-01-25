@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Color definitions
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+CONF_FILE="/etc/modprobe.d/blacklist-kvm.conf"
+
+function usage() {
+    echo -e "${BLUE}Usage:${NC} vm-manager use [kvm|vbox]"
+    exit 1
+}
+
+# Check for root privileges
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}[!] Error: This script must be run with sudo.${NC}"
+   exit 1
+fi
+
+if [ "$1" != "use" ]; then
+    usage
+fi
+
+case "$2" in
+    kvm)
+        echo -e "${GREEN}[+] Switching to KVM mode...${NC}"
+        
+        # Clear the blacklist file to allow KVM modules
+        : > "$CONF_FILE"
+        
+        # Attempt to unload VirtualBox modules
+        modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
+        
+        # Load KVM modules based on CPU architecture
+        modprobe kvm_intel 2>/dev/null || modprobe kvm_amd 2>/dev/null
+        
+        echo -e "${GREEN}[✔] KVM is now enabled. Virtualization conflict resolved.${NC}"
+        ;;
+    vbox)
+        echo -e "${RED}[+] Switching to VirtualBox mode...${NC}"
+        
+        # Write blacklist entries to prevent KVM from loading
+        echo -e "blacklist kvm\nblacklist kvm_intel\nblacklist kvm_amd" > "$CONF_FILE"
+        
+        # Unload KVM modules
+        modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
+        
+        # Load VirtualBox driver
+        modprobe vboxdrv 2>/dev/null
+        
+        echo -e "${RED}[✔] VirtualBox is now enabled. KVM has been blacklisted.${NC}"
+        ;;
+    *)
+        usage
+        ;;
+esac
