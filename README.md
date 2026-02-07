@@ -9,3 +9,6 @@ cd vm-manager
 chmod +x install.sh
 ./install.sh
 ```
+# future work
+[] make it afford various vm manager
+[] make it to package
