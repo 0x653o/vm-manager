@@ -9,6 +9,15 @@ cd vm-manager
 chmod +x install.sh
 ./install.sh
 ```
+
+## Usage
+```bash
+sudo vm-manager use kvm # for using docker or like kvm using platform
+
+sudo vm-manager use vbox # for using vbox virtualizotion platform
+```
+
 # future work
 [] make it afford various vm manager
+
 [] make it to package
