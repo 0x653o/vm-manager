@@ -50,6 +50,7 @@ function check_installed() {
 
 function usage() {
     echo -e "${BLUE}Usage:${NC} vm-manager use [kvm|vbox|vmware|xen|proxmox|multipass]"
+    echo -e "       vm-manager sign"
     echo -e "Try 'vm-manager --help' for more information."
     echo ""
     check_installed
@@ -59,6 +60,7 @@ function usage() {
 function show_help() {
     echo -e "${BLUE}VM-Manager - Virtualization Switcher${NC}"
     echo -e "Usage: vm-manager use [hypervisor]"
+    echo -e "       vm-manager sign"
     echo -e "       vm-manager --help | -h"
     echo -e ""
     check_installed
@@ -89,6 +91,68 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+function sign_modules() {
+    echo -e "${BLUE}[+] Signing kernel modules for Secure Boot...${NC}"
+    
+    if command -v mokutil &> /dev/null; then
+        if ! mokutil --sb-state | grep -q "SecureBoot enabled"; then
+            echo -e "${GREEN}[✔] Secure Boot is disabled. No need to sign modules.${NC}"
+            exit 0
+        fi
+    fi
+
+    local MOK_DIR="/root/.mok"
+    mkdir -p "$MOK_DIR"
+    
+    if [ ! -f "$MOK_DIR/MOK.priv" ] || [ ! -f "$MOK_DIR/MOK.der" ]; then
+        echo -e "${BLUE}[+] Generating Machine Owner Key (MOK)...${NC}"
+        openssl req -new -x509 -newkey rsa:2048 -keyout "$MOK_DIR/MOK.priv" -outform DER -out "$MOK_DIR/MOK.der" -nodes -days 36500 -subj "/CN=VM-Manager/" 2>/dev/null
+        echo -e "${GREEN}[✔] Key generated at $MOK_DIR${NC}"
+    fi
+
+    local KERNEL_VER=$(uname -r)
+    local SIGN_TOOL="/usr/src/linux-headers-$KERNEL_VER/scripts/sign-file"
+
+    if [ ! -f "$SIGN_TOOL" ]; then
+        echo -e "${RED}[!] Error: Cannot find sign-file tool. Please install linux-headers: apt install linux-headers-$KERNEL_VER${NC}"
+        exit 1
+    fi
+
+    if command -v vmware &> /dev/null || command -v vmplayer &> /dev/null; then
+        for mod in vmmon vmnet; do
+            local mod_path=$(modinfo -n $mod 2>/dev/null)
+            if [ -n "$mod_path" ]; then
+                echo -e "  -> Signing VMware module: $mod"
+                "$SIGN_TOOL" sha256 "$MOK_DIR/MOK.priv" "$MOK_DIR/MOK.der" "$mod_path"
+            fi
+        done
+    fi
+
+    if command -v VBoxManage &> /dev/null || command -v virtualbox &> /dev/null; then
+        for mod in vboxdrv vboxnetadp vboxnetflt; do
+            local mod_path=$(modinfo -n $mod 2>/dev/null)
+            if [ -n "$mod_path" ]; then
+                echo -e "  -> Signing VirtualBox module: $mod"
+                "$SIGN_TOOL" sha256 "$MOK_DIR/MOK.priv" "$MOK_DIR/MOK.der" "$mod_path"
+            fi
+        done
+    fi
+
+    echo -e "${BLUE}[+] Enrolling MOK to firmware...${NC}"
+    echo -e "${GREEN}IMPORTANT: You will be prompted to create a password for MOK enrollment.${NC}"
+    echo -e "${GREEN}After this script finishes, you MUST reboot your system.${NC}"
+    echo -e "${GREEN}Upon reboot, a blue 'MOK management' screen will appear. Select 'Enroll MOK', 'Continue', 'Yes', and enter the password you just created.${NC}"
+    
+    mokutil --import "$MOK_DIR/MOK.der"
+    
+    echo -e "${GREEN}[✔] Signing complete! Please REBOOT your system to enroll the key.${NC}"
+    exit 0
+}
+
+if [ "$1" == "sign" ]; then
+    sign_modules
+fi
+
 if [ "$1" != "use" ]; then
     usage
 fi
@@ -110,6 +174,7 @@ case "$2" in
         
         # Attempt to unload VirtualBox and VMware modules
         modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
+        systemctl stop vmware &>/dev/null || /etc/init.d/vmware stop &>/dev/null
         modprobe -r vmmon vmnet 2>/dev/null
         
         # Load KVM modules based on CPU architecture
@@ -125,6 +190,7 @@ case "$2" in
         
         # Unload KVM and VMware modules
         modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
+        systemctl stop vmware &>/dev/null || /etc/init.d/vmware stop &>/dev/null
         modprobe -r vmmon vmnet 2>/dev/null
         
         # Load VirtualBox driver
@@ -142,7 +208,8 @@ case "$2" in
         modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
         modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
         
-        # Load VMware modules
+        # Start VMware services and load modules
+        systemctl restart vmware &>/dev/null || /etc/init.d/vmware restart &>/dev/null
         modprobe vmmon 2>/dev/null
         modprobe vmnet 2>/dev/null
         
@@ -157,6 +224,7 @@ case "$2" in
         # Unload KVM, VirtualBox, and VMware modules
         modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
         modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
+        systemctl stop vmware &>/dev/null || /etc/init.d/vmware stop &>/dev/null
         modprobe -r vmmon vmnet 2>/dev/null
         
         echo -e "${BLUE}[✔] Virtualization modules unloaded. Note: Xen typically requires booting into a Xen-enabled kernel.${NC}"

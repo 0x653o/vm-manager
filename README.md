@@ -10,6 +10,7 @@ Modern Linux systems support a variety of virtualization platforms. However, Typ
 ## Features
 - **Real-time Module Management**: Automatically unloads and blacklists conflicting hypervisor modules without requiring a reboot.
 - **Environment Detection**: Run `vm-manager --help` to automatically detect and list which hypervisor packages are currently installed on your local machine.
+- **Secure Boot Support**: Easily generate and enroll MOK keys to sign out-of-tree kernel modules (like VMware and VirtualBox) for systems with Secure Boot enabled.
 - **Broad Support**: Supports KVM, VirtualBox, VMware, Xen, Proxmox VE, and Multipass out of the box.
 
 ## Installation
@@ -33,6 +34,9 @@ sudo vm-manager use vmware    # For VMware Workstation Pro/Player
 sudo vm-manager use xen       # For Xen
 sudo vm-manager use proxmox   # For Proxmox VE (KVM/LXC based)
 sudo vm-manager use multipass # For Multipass (QEMU/KVM based)
+
+# To sign VMware and VirtualBox modules for Secure Boot:
+sudo vm-manager sign
 
 # To see detailed information about each platform and auto-detect installed packages:
 vm-manager --help
