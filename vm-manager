@@ -8,10 +8,80 @@ NC='\033[0m' # No Color
 
 CONF_FILE="/etc/modprobe.d/blacklist-kvm.conf"
 
+function check_installed() {
+    echo -e "${GREEN}Installed Hypervisors on this device:${NC}"
+    local found=0
+    
+    if command -v virsh &> /dev/null || command -v qemu-system-x86_64 &> /dev/null || command -v virt-manager &> /dev/null; then
+        echo -e "  [✔] ${BLUE}KVM / QEMU${NC} is installed."
+        found=1
+    fi
+    
+    if command -v VBoxManage &> /dev/null || command -v virtualbox &> /dev/null; then
+        echo -e "  [✔] ${BLUE}VirtualBox${NC} is installed."
+        found=1
+    fi
+    
+    if command -v vmware &> /dev/null || command -v vmplayer &> /dev/null || command -v vmrun &> /dev/null; then
+        echo -e "  [✔] ${BLUE}VMware${NC} is installed."
+        found=1
+    fi
+    
+    if command -v xl &> /dev/null || command -v xe &> /dev/null; then
+        echo -e "  [✔] ${BLUE}Xen${NC} is installed."
+        found=1
+    fi
+    
+    if command -v pveversion &> /dev/null; then
+        echo -e "  [✔] ${BLUE}Proxmox VE${NC} is installed."
+        found=1
+    fi
+    
+    if command -v multipass &> /dev/null; then
+        echo -e "  [✔] ${BLUE}Multipass${NC} is installed."
+        found=1
+    fi
+    
+    if [ $found -eq 0 ]; then
+        echo -e "  [-] No supported hypervisors detected in PATH."
+    fi
+    echo ""
+}
+
 function usage() {
-    echo -e "${BLUE}Usage:${NC} vm-manager use [kvm|vbox]"
+    echo -e "${BLUE}Usage:${NC} vm-manager use [kvm|vbox|vmware|xen|proxmox|multipass]"
+    echo -e "Try 'vm-manager --help' for more information."
+    echo ""
+    check_installed
     exit 1
 }
+
+function show_help() {
+    echo -e "${BLUE}VM-Manager - Virtualization Switcher${NC}"
+    echo -e "Usage: vm-manager use [hypervisor]"
+    echo -e "       vm-manager --help | -h"
+    echo -e ""
+    check_installed
+    echo -e "${GREEN}Supported Hypervisors & Details:${NC}"
+    echo -e "  ${BLUE}kvm${NC}       - KVM with Libvirt/Virt-Manager: Considered the 'holy trinity' for Linux virtualization."
+    echo -e "               A type-1 hypervisor built into the Linux kernel. Managed via Libvirt/Virt-Manager"
+    echo -e "               or virsh. Ideal for server environments and running multiple headless guests."
+    echo -e "  ${BLUE}vbox${NC}      - VirtualBox: A popular type-2 hypervisor that is free and open-source. User-friendly"
+    echo -e "               for desktop users and supports cloning virtual disks using differencing layers."
+    echo -e "  ${BLUE}vmware${NC}    - VMware: VMware Workstation Pro/Player. For enterprise bare-metal virtualization,"
+    echo -e "               VMware ESXi is a dedicated hypervisor option."
+    echo -e "  ${BLUE}xen${NC}       - Xen: An open-source type-1 hypervisor specifically designed for hosting multiple"
+    echo -e "               VMs efficiently. Supports user-specific access controls (XenCenter or CLI)."
+    echo -e "  ${BLUE}proxmox${NC}   - Proxmox VE: A free, open-source server virtualization management platform based"
+    echo -e "               on Debian Linux. Uses KVM/LXC under the hood."
+    echo -e "  ${BLUE}multipass${NC} - Multipass: A tool by Canonical for launching Ubuntu VMs quickly using QEMU/KVM."
+    echo -e "               Designed for developers simulating cloud deployments locally."
+    exit 0
+}
+
+if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    show_help
+fi
 
 # Check for root privileges
 if [[ $EUID -ne 0 ]]; then
@@ -24,19 +94,28 @@ if [ "$1" != "use" ]; then
 fi
 
 case "$2" in
-    kvm)
-        echo -e "${GREEN}[+] Switching to KVM mode...${NC}"
+    kvm|proxmox|multipass)
+        if [ "$2" == "kvm" ]; then
+            MODE_NAME="KVM"
+        elif [ "$2" == "proxmox" ]; then
+            MODE_NAME="Proxmox (KVM)"
+        else
+            MODE_NAME="Multipass (KVM)"
+        fi
+        
+        echo -e "${GREEN}[+] Switching to $MODE_NAME mode...${NC}"
         
         # Clear the blacklist file to allow KVM modules
         : > "$CONF_FILE"
         
-        # Attempt to unload VirtualBox modules
+        # Attempt to unload VirtualBox and VMware modules
         modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
+        modprobe -r vmmon vmnet 2>/dev/null
         
         # Load KVM modules based on CPU architecture
         modprobe kvm_intel 2>/dev/null || modprobe kvm_amd 2>/dev/null
         
-        echo -e "${GREEN}[✔] KVM is now enabled. Virtualization conflict resolved.${NC}"
+        echo -e "${GREEN}[✔] $MODE_NAME is now enabled. Virtualization conflict resolved.${NC}"
         ;;
     vbox)
         echo -e "${RED}[+] Switching to VirtualBox mode...${NC}"
@@ -44,13 +123,43 @@ case "$2" in
         # Write blacklist entries to prevent KVM from loading
         echo -e "blacklist kvm\nblacklist kvm_intel\nblacklist kvm_amd" > "$CONF_FILE"
         
-        # Unload KVM modules
+        # Unload KVM and VMware modules
         modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
+        modprobe -r vmmon vmnet 2>/dev/null
         
         # Load VirtualBox driver
         modprobe vboxdrv 2>/dev/null
         
         echo -e "${RED}[✔] VirtualBox is now enabled. KVM has been blacklisted.${NC}"
+        ;;
+    vmware)
+        echo -e "${BLUE}[+] Switching to VMware mode...${NC}"
+        
+        # Write blacklist entries to prevent KVM from loading
+        echo -e "blacklist kvm\nblacklist kvm_intel\nblacklist kvm_amd" > "$CONF_FILE"
+        
+        # Unload KVM and VirtualBox modules
+        modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
+        modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
+        
+        # Load VMware modules
+        modprobe vmmon 2>/dev/null
+        modprobe vmnet 2>/dev/null
+        
+        echo -e "${BLUE}[✔] VMware is now enabled. KVM has been blacklisted.${NC}"
+        ;;
+    xen)
+        echo -e "${BLUE}[+] Switching to Xen mode...${NC}"
+        
+        # Write blacklist entries to prevent KVM from loading
+        echo -e "blacklist kvm\nblacklist kvm_intel\nblacklist kvm_amd" > "$CONF_FILE"
+        
+        # Unload KVM, VirtualBox, and VMware modules
+        modprobe -r kvm_intel kvm_amd kvm 2>/dev/null
+        modprobe -r vboxnetadp vboxnetflt vboxdrv 2>/dev/null
+        modprobe -r vmmon vmnet 2>/dev/null
+        
+        echo -e "${BLUE}[✔] Virtualization modules unloaded. Note: Xen typically requires booting into a Xen-enabled kernel.${NC}"
         ;;
     *)
         usage

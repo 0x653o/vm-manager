@@ -1,6 +1,16 @@
 # VM-Manager
 
-A command-line utility for Linux to seamlessly switch between KVM and VirtualBox. It prevents virtualization conflicts by managing kernel module blacklists in real-time.
+A command-line utility for Linux to seamlessly switch between multiple virtualization platforms (KVM, VirtualBox, VMware, Xen, Proxmox, Multipass). It prevents virtualization conflicts by managing kernel module blacklists and unloading conflicting modules in real-time.
+
+## Why this tool?
+Modern Linux systems support a variety of virtualization platforms. However, Type-1 and Type-2 hypervisors often rely on the same hardware virtualization extensions (VT-x for Intel, AMD-V for AMD). When modules for different platforms (e.g., KVM's `kvm_intel` and VirtualBox's `vboxdrv` or VMware's `vmmon`) are loaded simultaneously, they cause hardware resource conflicts, or simply prevent VMs from starting.
+
+`vm-manager` solves this by safely unloading and blacklisting the kernel modules of the hypervisors you are **not** currently using, while loading the ones you **are** using.
+
+## Features
+- **Real-time Module Management**: Automatically unloads and blacklists conflicting hypervisor modules without requiring a reboot.
+- **Environment Detection**: Run `vm-manager --help` to automatically detect and list which hypervisor packages are currently installed on your local machine.
+- **Broad Support**: Supports KVM, VirtualBox, VMware, Xen, Proxmox VE, and Multipass out of the box.
 
 ## Installation
 ```bash
@@ -10,14 +20,35 @@ chmod +x install.sh
 ./install.sh
 ```
 
-## Usage
+## Uninstallation
 ```bash
-sudo vm-manager use kvm # for using docker or like kvm using platform
-
-sudo vm-manager use vbox # for using vbox virtualizotion platform
+./uninstall.sh
 ```
 
-# future work
-[] make it afford various vm manager
+## Usage
+```bash
+sudo vm-manager use kvm       # For KVM with Libvirt/Virt-Manager
+sudo vm-manager use vbox      # For VirtualBox
+sudo vm-manager use vmware    # For VMware Workstation Pro/Player
+sudo vm-manager use xen       # For Xen
+sudo vm-manager use proxmox   # For Proxmox VE (KVM/LXC based)
+sudo vm-manager use multipass # For Multipass (QEMU/KVM based)
 
-[] make it to package
+# To see detailed information about each platform and auto-detect installed packages:
+vm-manager --help
+```
+
+### Supported Hypervisors
+- **KVM with Libvirt/Virt-Manager**: Considered the "holy trinity" for Linux virtualization. A type-1 hypervisor built into the Linux kernel. Ideal for server environments and running multiple headless guests.
+- **VirtualBox**: A popular type-2 hypervisor that is free and open-source. User-friendly for desktop users and supports cloning virtual disks.
+- **VMware**: VMware Workstation Pro/Player. For enterprise bare-metal virtualization, VMware ESXi is a dedicated hypervisor option.
+- **Xen**: An open-source type-1 hypervisor specifically designed for hosting multiple VMs efficiently. Supports user-specific access controls.
+- **Proxmox VE**: A free, open-source server virtualization management platform based on Debian Linux. Uses KVM/LXC under the hood.
+- **Multipass**: A tool by Canonical for launching Ubuntu VMs quickly using QEMU/KVM. Designed for developers simulating cloud deployments locally.
+
+### FAQ: What about QEMU?
+**QEMU by itself is a software emulator and does not conflict with VirtualBox or VMware.** Conflicts only occur when QEMU attempts to use **KVM** for hardware acceleration. Because `vm-manager` manages KVM kernel modules (`kvm`, `kvm_intel`, `kvm_amd`), any QEMU-based KVM virtualization is already safely handled without needing explicit QEMU blacklisting.
+
+# Future Work
+- [ ] Make it afford various custom VM managers
+- [ ] Package it for package managers (APT, RPM, Arch AUR)
